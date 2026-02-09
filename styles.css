@@ -57,6 +57,99 @@ body {
     box-shadow: 0 10px 30px rgba(0,0,0,0.2);
 }
 
+/* Configuration Section */
+.config-section {
+    background: #f8f9fa;
+    padding: 15px;
+    border-radius: 10px;
+    margin-bottom: 20px;
+    border: 1px solid #e9ecef;
+}
+
+.config-section h3 {
+    margin-bottom: 15px;
+    color: #333;
+}
+
+.config-input-group {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.config-input-group label {
+    font-weight: 600;
+    color: #555;
+}
+
+.config-input-group input {
+    padding: 12px;
+    border: 2px solid #ddd;
+    border-radius: 8px;
+    font-size: 14px;
+    transition: border-color 0.3s;
+}
+
+.config-input-group input:focus {
+    outline: none;
+    border-color: #667eea;
+}
+
+.input-with-presets {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.input-with-presets input {
+    flex: 1;
+}
+
+.preset-buttons {
+    display: flex;
+    gap: 5px;
+}
+
+.preset-btn {
+    padding: 8px 12px;
+    background: #e9ecef;
+    border: none;
+    border-radius: 6px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+.preset-btn:hover {
+    background: #667eea;
+    color: white;
+}
+
+.endpoint-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.full-url-display {
+    margin-top: 10px;
+    padding: 10px;
+    background: #e9ecef;
+    border-radius: 6px;
+    font-size: 14px;
+}
+
+.full-url-display code {
+    display: block;
+    margin-top: 5px;
+    padding: 8px;
+    background: white;
+    border-radius: 4px;
+    word-break: break-all;
+    font-family: 'Courier New', monospace;
+}
+
+/* Video Container */
 .video-container {
     position: relative;
     width: 100%;
@@ -86,6 +179,7 @@ body {
     text-align: center;
 }
 
+/* Controls */
 .controls {
     display: flex;
     gap: 10px;
@@ -132,6 +226,22 @@ body {
     box-shadow: 0 5px 15px rgba(0,0,0,0.2);
 }
 
+.btn-save {
+    padding: 8px 16px;
+    background: #28a745;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 14px;
+    cursor: pointer;
+    transition: background 0.3s;
+}
+
+.btn-save:hover {
+    background: #218838;
+}
+
+/* Server Info */
 .server-info {
     background: #f9f9f9;
     padding: 15px;
@@ -139,28 +249,94 @@ body {
     margin-top: 20px;
 }
 
-.server-info h3 {
-    margin-bottom: 10px;
+.info-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px;
+}
+
+.info-header h3 {
+    margin: 0;
     color: #333;
 }
 
-.server-info code {
-    background: #eee;
-    padding: 2px 5px;
-    border-radius: 3px;
-    font-family: monospace;
-    word-break: break-all;
+.connection-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 15px;
+    margin-bottom: 20px;
 }
 
-.connection-stats {
+.stat-item {
     display: flex;
-    justify-content: space-between;
-    margin-top: 10px;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.stat-label {
     font-size: 14px;
+    color: #666;
+}
+
+.stat-value {
+    font-size: 18px;
+    font-weight: bold;
 }
 
 .quality-good { color: #4CAF50; }
+.quality-fair { color: #FF9800; }
 .quality-poor { color: #F44336; }
+.quality-neutral { color: #666; }
+
+/* Recent Servers */
+.recent-servers {
+    margin-top: 20px;
+}
+
+.recent-servers h4 {
+    margin-bottom: 10px;
+    color: #555;
+}
+
+.servers-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.server-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px;
+    background: white;
+    border-radius: 6px;
+    border: 1px solid #e9ecef;
+}
+
+.server-url {
+    font-family: 'Courier New', monospace;
+    font-size: 13px;
+    word-break: break-all;
+    flex: 1;
+}
+
+.btn-use-server {
+    padding: 5px 10px;
+    background: #007bff;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    font-size: 12px;
+    cursor: pointer;
+    margin-left: 10px;
+    flex-shrink: 0;
+}
+
+.btn-use-server:hover {
+    background: #0056b3;
+}
 
 .footer {
     text-align: center;
@@ -190,6 +366,19 @@ body {
     .controls {
         flex-direction: column;
     }
+    
+    .input-with-presets {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    
+    .preset-buttons {
+        justify-content: center;
+    }
+    
+    .connection-stats {
+        grid-template-columns: 1fr;
+    }
 }
 
 /* Fullscreen styles */
@@ -201,6 +390,7 @@ body {
 :fullscreen .controls,
 :fullscreen .server-info,
 :fullscreen .header,
-:fullscreen .footer {
+:fullscreen .footer,
+:fullscreen .config-section {
     display: none;
 }
