@@ -170,76 +170,90 @@ class WebSocketVideoStreamer {
     setupMediaSource() {
         if (!('MediaSource' in window)) {
             this.showMessage('MediaSource API not supported in this browser', 'error');
+            this.logMessage('MediaSource API not available, falling back to snapshot', 'error');
             return;
         }
-        
+
         this.cleanupMediaSource();
-        
+
         // Create new MediaSource
         this.config.mediaSource = new MediaSource();
         const objectUrl = URL.createObjectURL(this.config.mediaSource);
         this.videoPlayer.src = objectUrl;
         this.videoPlayer.style.display = 'block';
-        
+
+        // Listen for video element errors
+        this.videoPlayer.onerror = () => {
+            const err = this.videoPlayer.error;
+            this.logMessage(`Video error: code=${err?.code} message=${err?.message}`, 'error');
+        };
+
         this.config.mediaSource.addEventListener('sourceopen', () => {
-            this.logMessage('MediaSource opened', 'info');
+            this.logMessage(`MediaSource opened (readyState=${this.config.mediaSource.readyState})`, 'info');
             this.tryCreateSourceBuffer();
         });
-        
+
         this.config.mediaSource.addEventListener('sourceended', () => {
-            this.logMessage('MediaSource ended', 'info');
+            this.logMessage('MediaSource ended', 'warning');
         });
-        
+
         this.config.mediaSource.addEventListener('sourceclose', () => {
-            this.logMessage('MediaSource closed', 'info');
+            this.logMessage('MediaSource closed', 'warning');
         });
+
+        this.logMessage(`MediaSource created, readyState=${this.config.mediaSource.readyState}, queued=${this.config.mediaSegments.length}`, 'info');
     }
-    
+
     tryCreateSourceBuffer() {
         if (!this.config.mediaSource || this.config.mediaSource.readyState !== 'open') {
+            this.logMessage(`Cannot create SourceBuffer: readyState=${this.config.mediaSource?.readyState}`, 'error');
             return;
         }
-        
+
         // Try different codecs
         const codecsToTry = [
             'video/mp4; codecs="avc1.42E01E"',  // Baseline
             'video/mp4; codecs="avc1.4D401E"',  // Main
             'video/mp4; codecs="avc1.640028"',  // High
-            'video/mp4; codecs="mp4v.20.9"',    // MPEG-4
             'video/mp4'                         // Generic
         ];
-        
+
         for (const codec of codecsToTry) {
             if (MediaSource.isTypeSupported(codec)) {
                 try {
                     this.config.sourceBuffer = this.config.mediaSource.addSourceBuffer(codec);
                     this.config.mimeCodec = codec;
-                    this.logMessage(`Created SourceBuffer with codec: ${codec}`, 'info');
-                    
+
+                    // Use 'sequence' mode for live streaming — data arrives in order
+                    try {
+                        this.config.sourceBuffer.mode = 'sequence';
+                        this.logMessage(`SourceBuffer created (${codec}), mode=sequence`, 'info');
+                    } catch (modeErr) {
+                        this.logMessage(`SourceBuffer created (${codec}), mode=segments (sequence not supported)`, 'info');
+                    }
+
                     this.config.sourceBuffer.addEventListener('updateend', () => {
                         this.appendNextSegment();
                         this.tryPlay();
                         this.trimBuffer();
                     });
-                    
-                    this.config.sourceBuffer.addEventListener('error', (e) => {
-                        this.logMessage(`SourceBuffer error: ${e.message || 'Unknown'}`, 'error');
+
+                    this.config.sourceBuffer.addEventListener('error', () => {
+                        this.logMessage(`SourceBuffer error, readyState=${this.config.mediaSource?.readyState}, buffered=${this.config.sourceBuffer?.buffered?.length}`, 'error');
                     });
-                    
-                    // Drain any queued segments
+
+                    this.logMessage(`${this.config.mediaSegments.length} segments queued, draining now`, 'info');
                     this.appendNextSegment();
                     return;
-                    
+
                 } catch (e) {
-                    this.logMessage(`Failed to create SourceBuffer with ${codec}: ${e.message}`, 'warning');
+                    this.logMessage(`Failed codec ${codec}: ${e.message}`, 'warning');
                 }
-            } else {
-                this.logMessage(`Codec not supported: ${codec}`, 'debug');
             }
         }
-        
-        this.logMessage('Failed to create SourceBuffer with any codec', 'error');
-        this.showMessage('Cannot play video stream in this browser', 'error');
+
+        this.logMessage('No supported codec found for SourceBuffer', 'error');
+        this.showMessage('Cannot play H.264 stream in this browser', 'error');
     }
     
     updateFullUrlDisplay() {
@@ -370,10 +384,16 @@ class WebSocketVideoStreamer {
     }
     
     handleIncomingData(data) {
+        // Filter out text/JSON messages (server error notifications)
+        if (typeof data === 'string') {
+            this.logMessage(`Server message: ${data}`, 'warning');
+            return;
+        }
+
         this.chunkCount++;
         const dataSize = data.byteLength || data.size || 0;
         this.bytesReceived += dataSize;
-        
+
         // Update stats
         const now = Date.now();
         if (now - this.lastDataRateTime >= 1000) {
@@ -383,14 +403,11 @@ class WebSocketVideoStreamer {
             this.lastDataRateTime = now;
             this.lastDataRateBytes = this.bytesReceived;
         }
-        
+
         // Update debug display
         this.bytesReceivedElement.textContent = this.formatBytes(this.bytesReceived);
         this.chunkCountElement.textContent = this.chunkCount;
-        
-        // Log chunk info
-        this.logMessage(`Received chunk ${this.chunkCount}: ${this.formatBytes(dataSize)}`, 'debug');
-        
+
         // Handle data based on stream type
         if (this.streamType === 'h264') {
             this.handleH264Data(data);
@@ -417,10 +434,13 @@ class WebSocketVideoStreamer {
     }
 
     appendNextSegment() {
-        if (!this.config.sourceBuffer ||
-            this.config.sourceBuffer.updating ||
-            this.config.mediaSegments.length === 0 ||
-            this.config.mediaSource.readyState !== 'open') {
+        if (!this.config.sourceBuffer || this.config.sourceBuffer.updating ||
+            this.config.mediaSegments.length === 0) {
+            return;
+        }
+        if (this.config.mediaSource.readyState !== 'open') {
+            this.logMessage(`Cannot append: MediaSource readyState=${this.config.mediaSource.readyState}, dropping ${this.config.mediaSegments.length} segments`, 'warning');
+            this.config.mediaSegments = [];
             return;
         }
 
@@ -428,7 +448,11 @@ class WebSocketVideoStreamer {
             const segment = this.config.mediaSegments.shift();
             this.config.sourceBuffer.appendBuffer(segment);
         } catch (e) {
-            this.logMessage(`Error appending segment: ${e.message}`, 'error');
+            this.logMessage(`appendBuffer error: ${e.name}: ${e.message}`, 'error');
+            // If QuotaExceeded, try to free space
+            if (e.name === 'QuotaExceededError') {
+                this.trimBuffer();
+            }
         }
     }
     
@@ -571,9 +595,9 @@ class WebSocketVideoStreamer {
             
             this.messageLog.prepend(messageElement);
             
-            // Keep only last 20 messages
+            // Keep only last 50 messages
             const messages = this.messageLog.querySelectorAll('.log-message');
-            if (messages.length > 20) {
+            if (messages.length > 50) {
                 messages[messages.length - 1].remove();
             }
         }
