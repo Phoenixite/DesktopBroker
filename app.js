@@ -11,10 +11,10 @@ class WebSocketVideoStreamer {
             streamType: 'h264',
             mediaSource: null,
             sourceBuffer: null,
-            isSourceBufferUpdating: false,
-            mimeCodec: 'video/mp4; codecs="avc1.640028"', // VIDEO ONLY, no audio
-            waitingForInitSegment: true,
-            initSegmentReceived: false
+            mimeCodec: 'video/mp4; codecs="avc1.42E01E"', // Try more compatible codec
+            waitingForInit: true,
+            initData: null,
+            mediaSegments: []
         };
         
         // State variables
@@ -24,15 +24,13 @@ class WebSocketVideoStreamer {
         this.bytesReceived = 0;
         this.lastDataRateTime = Date.now();
         this.lastDataRateBytes = 0;
-        this.mediaChunks = [];
         this.reconnectAttempts = 0;
         this.maxReconnectAttempts = 5;
-        this.bufferCleanupInterval = null;
         this.streamType = 'h264';
-        this.lastInitSegmentTime = 0;
-        this.initSegmentRefreshInterval = 30000; // Refresh init segment every 30s
+        this.receivedFirstChunk = false;
+        this.buffer = [];
         
-        // DOM elements
+        // DOM elements (same as before)
         this.videoPlayer = document.getElementById('videoPlayer');
         this.connectBtn = document.getElementById('connectBtn');
         this.disconnectBtn = document.getElementById('disconnectBtn');
@@ -71,133 +69,6 @@ class WebSocketVideoStreamer {
         this.updateFullUrlDisplay();
         this.updateUI();
         this.logMessage('App initialized', 'info');
-        
-        // Try multiple codec configurations
-        this.tryCodecConfigurations();
-    }
-    
-    tryCodecConfigurations() {
-        // Try different codec configurations
-        this.codecConfigs = [
-            'video/mp4; codecs="avc1.640028"',           // H.264 High Profile, no audio
-            'video/mp4; codecs="avc1.4d0028"',           // H.264 Main Profile
-            'video/mp4; codecs="avc1.42e01e"',           // H.264 Baseline
-            'video/mp4; codecs="avc1.42801e"',           // H.264 Constrained Baseline
-            'video/mp4; codecs="mp4v.20.9"',             // MPEG-4 Visual
-            'video/mp4'                                   // Generic MP4
-        ];
-        
-        this.currentCodecIndex = 0;
-    }
-    
-    setupMediaSource() {
-        // Check browser support
-        if (!('MediaSource' in window)) {
-            this.showMessage('MediaSource API not supported in this browser', 'error');
-            return;
-        }
-        
-        // Close existing MediaSource if any
-        if (this.config.mediaSource && this.config.mediaSource.readyState !== 'closed') {
-            this.config.mediaSource.endOfStream();
-            URL.revokeObjectURL(this.videoPlayer.src);
-        }
-        
-        // Create new MediaSource
-        this.config.mediaSource = new MediaSource();
-        this.videoPlayer.src = URL.createObjectURL(this.config.mediaSource);
-        
-        this.config.mediaSource.addEventListener('sourceopen', () => {
-            this.logMessage('MediaSource opened', 'info');
-            this.setupSourceBuffer();
-        });
-        
-        this.config.mediaSource.addEventListener('sourceended', () => {
-            this.logMessage('MediaSource ended', 'info');
-        });
-        
-        this.config.mediaSource.addEventListener('sourceclose', () => {
-            this.logMessage('MediaSource closed', 'info');
-        });
-        
-        this.config.mediaSource.addEventListener('error', (e) => {
-            this.logMessage(`MediaSource error: ${e.message || 'Unknown'}`, 'error');
-        });
-    }
-    
-    setupSourceBuffer() {
-        if (!this.config.mediaSource || this.config.mediaSource.readyState !== 'open') {
-            return;
-        }
-        
-        // Try current codec configuration
-        const mimeCodec = this.codecConfigs[this.currentCodecIndex];
-        
-        try {
-            if (!MediaSource.isTypeSupported(mimeCodec)) {
-                this.logMessage(`Codec not supported: ${mimeCodec}`, 'warning');
-                this.tryNextCodec();
-                return;
-            }
-            
-            this.config.sourceBuffer = this.config.mediaSource.addSourceBuffer(mimeCodec);
-            this.config.sourceBuffer.mode = 'segments';
-            this.config.mimeCodec = mimeCodec;
-            
-            this.config.sourceBuffer.addEventListener('updateend', () => {
-                this.config.isSourceBufferUpdating = false;
-                this.appendQueuedChunks();
-            });
-            
-            this.config.sourceBuffer.addEventListener('update', () => {
-                this.logMessage('SourceBuffer updated', 'debug');
-            });
-            
-            this.config.sourceBuffer.addEventListener('error', (e) => {
-                this.logMessage(`SourceBuffer error: ${e.message || 'Unknown'}`, 'error');
-                // Try next codec on error
-                if (this.currentCodecIndex < this.codecConfigs.length - 1) {
-                    this.tryNextCodec();
-                }
-            });
-            
-            this.config.waitingForInitSegment = true;
-            this.config.initSegmentReceived = false;
-            this.mediaChunks = [];
-            
-            this.logMessage(`SourceBuffer created with codec: ${mimeCodec}`, 'info');
-            this.logMessage(`MediaSource readyState: ${this.config.mediaSource.readyState}`, 'info');
-            
-        } catch (e) {
-            this.logMessage(`Error creating SourceBuffer: ${e.message}`, 'error');
-            this.tryNextCodec();
-        }
-    }
-    
-    tryNextCodec() {
-        if (this.currentCodecIndex < this.codecConfigs.length - 1) {
-            this.currentCodecIndex++;
-            this.logMessage(`Trying next codec: ${this.codecConfigs[this.currentCodecIndex]}`, 'info');
-            
-            // Clean up old source buffer
-            if (this.config.sourceBuffer) {
-                try {
-                    this.config.sourceBuffer.abort();
-                    if (this.config.mediaSource.readyState === 'open') {
-                        this.config.mediaSource.removeSourceBuffer(this.config.sourceBuffer);
-                    }
-                } catch (e) {
-                    // Ignore cleanup errors
-                }
-                this.config.sourceBuffer = null;
-            }
-            
-            // Setup with new codec
-            this.setupSourceBuffer();
-        } else {
-            this.logMessage('All codec configurations failed', 'error');
-            this.showMessage('Cannot play video stream with any available codec', 'error');
-        }
     }
     
     setupEventListeners() {
@@ -220,67 +91,12 @@ class WebSocketVideoStreamer {
             if (e.key === 'Enter') this.connect();
         });
         
-        // Video events
-        this.videoPlayer.addEventListener('loadeddata', () => {
-            this.logMessage('Video data loaded', 'info');
-            const dimensions = `${this.videoPlayer.videoWidth}x${this.videoPlayer.videoHeight}`;
-            this.videoInfo.textContent = `Playing ${dimensions}`;
-            this.logMessage(`Video dimensions: ${dimensions}`, 'info');
-        });
-        
-        this.videoPlayer.addEventListener('loadedmetadata', () => {
-            this.logMessage('Video metadata loaded', 'info');
-        });
-        
-        this.videoPlayer.addEventListener('canplay', () => {
-            this.logMessage('Video can play', 'info');
-            this.videoInfo.textContent = 'Ready to play';
-        });
-        
-        this.videoPlayer.addEventListener('playing', () => {
-            this.logMessage('Video started playing', 'info');
-            this.videoInfo.textContent = 'Playing';
-        });
-        
-        this.videoPlayer.addEventListener('waiting', () => {
-            this.logMessage('Video waiting for data', 'warning');
-            this.videoInfo.textContent = 'Buffering...';
-        });
-        
-        this.videoPlayer.addEventListener('error', (e) => {
-            const errorMsg = this.getVideoError();
-            this.logMessage(`Video error: ${errorMsg}`, 'error');
-            this.videoInfo.textContent = `Error: ${errorMsg}`;
-        });
-        
         // Handle visibility change
         document.addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'visible' && !this.isConnected) {
                 this.connect();
             }
         });
-        
-        // Start buffer cleanup interval
-        this.bufferCleanupInterval = setInterval(() => {
-            this.cleanupBuffer();
-        }, 1000);
-    }
-    
-    getVideoError() {
-        if (!this.videoPlayer.error) return 'Unknown error';
-        
-        switch(this.videoPlayer.error.code) {
-            case MediaError.MEDIA_ERR_ABORTED:
-                return 'Playback aborted';
-            case MediaError.MEDIA_ERR_NETWORK:
-                return 'Network error';
-            case MediaError.MEDIA_ERR_DECODE:
-                return 'Decoding error';
-            case MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED:
-                return 'Video format not supported';
-            default:
-                return `Code ${this.videoPlayer.error.code}`;
-        }
     }
     
     selectStreamType(type) {
@@ -299,8 +115,9 @@ class WebSocketVideoStreamer {
             this.dataTypeInfo.textContent = 'Binary MP4 fragments';
             this.streamTypeElement.textContent = 'H.264';
             
-            // Setup MediaSource for H.264
-            this.setupMediaSource();
+            // Clean up previous MediaSource
+            this.cleanupMediaSource();
+            
         } else {
             this.protocolInfo.textContent = 'JPEG snapshots over WebSocket';
             this.dataTypeInfo.textContent = 'Binary JPEG images';
@@ -318,6 +135,115 @@ class WebSocketVideoStreamer {
             this.disconnect();
             setTimeout(() => this.connect(), 500);
         }
+    }
+    
+    cleanupMediaSource() {
+        if (this.config.mediaSource) {
+            try {
+                if (this.config.mediaSource.readyState === 'open') {
+                    this.config.mediaSource.endOfStream();
+                }
+                if (this.videoPlayer.src) {
+                    URL.revokeObjectURL(this.videoPlayer.src);
+                }
+            } catch (e) {
+                // Ignore cleanup errors
+            }
+            this.config.mediaSource = null;
+            this.config.sourceBuffer = null;
+        }
+        
+        // Remove snapshot image if exists
+        if (this.snapshotImage) {
+            this.snapshotImage.remove();
+            this.snapshotImage = null;
+            this.videoPlayer.style.display = 'block';
+        }
+        
+        if (this.lastSnapshotUrl) {
+            URL.revokeObjectURL(this.lastSnapshotUrl);
+            this.lastSnapshotUrl = null;
+        }
+        
+        // Reset state
+        this.config.waitingForInit = true;
+        this.config.initData = null;
+        this.config.mediaSegments = [];
+        this.buffer = [];
+        this.receivedFirstChunk = false;
+    }
+    
+    setupMediaSource() {
+        if (!('MediaSource' in window)) {
+            this.showMessage('MediaSource API not supported in this browser', 'error');
+            return;
+        }
+        
+        this.cleanupMediaSource();
+        
+        // Create new MediaSource
+        this.config.mediaSource = new MediaSource();
+        const objectUrl = URL.createObjectURL(this.config.mediaSource);
+        this.videoPlayer.src = objectUrl;
+        this.videoPlayer.style.display = 'block';
+        
+        this.config.mediaSource.addEventListener('sourceopen', () => {
+            this.logMessage('MediaSource opened', 'info');
+            this.tryCreateSourceBuffer();
+        });
+        
+        this.config.mediaSource.addEventListener('sourceended', () => {
+            this.logMessage('MediaSource ended', 'info');
+        });
+        
+        this.config.mediaSource.addEventListener('sourceclose', () => {
+            this.logMessage('MediaSource closed', 'info');
+        });
+    }
+    
+    tryCreateSourceBuffer() {
+        if (!this.config.mediaSource || this.config.mediaSource.readyState !== 'open') {
+            return;
+        }
+        
+        // Try different codecs
+        const codecsToTry = [
+            'video/mp4; codecs="avc1.42E01E"',  // Baseline
+            'video/mp4; codecs="avc1.4D401E"',  // Main
+            'video/mp4; codecs="avc1.640028"',  // High
+            'video/mp4; codecs="mp4v.20.9"',    // MPEG-4
+            'video/mp4'                         // Generic
+        ];
+        
+        for (const codec of codecsToTry) {
+            if (MediaSource.isTypeSupported(codec)) {
+                try {
+                    this.config.sourceBuffer = this.config.mediaSource.addSourceBuffer(codec);
+                    this.config.mimeCodec = codec;
+                    this.logMessage(`Created SourceBuffer with codec: ${codec}`, 'info');
+                    
+                    this.config.sourceBuffer.addEventListener('updateend', () => {
+                        this.appendNextSegment();
+                    });
+                    
+                    this.config.sourceBuffer.addEventListener('error', (e) => {
+                        this.logMessage(`SourceBuffer error: ${e.message || 'Unknown'}`, 'error');
+                    });
+                    
+                    // Process any buffered data
+                    this.processBufferedData();
+                    return;
+                    
+                } catch (e) {
+                    this.logMessage(`Failed to create SourceBuffer with ${codec}: ${e.message}`, 'warning');
+                }
+            } else {
+                this.logMessage(`Codec not supported: ${codec}`, 'debug');
+            }
+        }
+        
+        this.logMessage('Failed to create SourceBuffer with any codec', 'error');
+        this.showMessage('Cannot play video stream in this browser', 'error');
     }
     
     updateFullUrlDisplay() {
@@ -390,23 +316,17 @@ class WebSocketVideoStreamer {
                 this.bytesReceived = 0;
                 this.lastDataRateTime = Date.now();
                 this.lastDataRateBytes = 0;
-                this.lastInitSegmentTime = 0;
                 
-                // Reset init segment flags
-                this.config.waitingForInitSegment = true;
-                this.config.initSegmentReceived = false;
+                // Reset state
+                this.config.waitingForInit = true;
+                this.config.initData = null;
+                this.config.mediaSegments = [];
+                this.buffer = [];
+                this.receivedFirstChunk = false;
                 
-                // Clear any existing chunks
-                this.mediaChunks = [];
-                
-                // For H.264, make sure MediaSource is ready
+                // Setup MediaSource for H.264
                 if (this.streamType === 'h264') {
-                    // Reset to first codec
-                    this.currentCodecIndex = 0;
-                    
-                    if (!this.config.mediaSource || this.config.mediaSource.readyState === 'closed') {
-                        this.setupMediaSource();
-                    }
+                    this.setupMediaSource();
                 }
             };
             
@@ -487,64 +407,138 @@ class WebSocketVideoStreamer {
     }
     
     handleH264Data(data) {
-        // Data should be ArrayBuffer from FFmpeg
         if (!(data instanceof ArrayBuffer)) {
             this.logMessage(`Received non-ArrayBuffer data: ${typeof data}`, 'warning');
             return;
         }
         
-        // Check if this looks like an initialization segment (small chunk at beginning)
-        const isSmallChunk = data.byteLength < 1024; // Less than 1KB
-        const isFirstChunks = this.chunkCount <= 3;
+        // Store the data
+        this.buffer.push(data);
         
-        if ((isSmallChunk && isFirstChunks) || this.config.waitingForInitSegment) {
-            this.logMessage('Detected possible initialization segment', 'info');
-            this.config.waitingForInitSegment = false;
-            this.config.initSegmentReceived = true;
-            this.lastInitSegmentTime = Date.now();
+        // Check if this is the first chunk (likely init segment)
+        if (!this.receivedFirstChunk) {
+            this.receivedFirstChunk = true;
             
-            // Clear buffer before appending init segment
-            if (this.config.sourceBuffer && this.config.mediaSource.readyState === 'open') {
-                try {
-                    this.config.sourceBuffer.abort();
+            // Analyze the first chunk
+            const firstBytes = new Uint8Array(data.slice(0, Math.min(100, data.byteLength)));
+            this.logMessage(`First chunk analysis (first 100 bytes): ${this.bytesToHex(firstBytes)}`, 'info');
+            
+            // Check for MP4 signature (ftyp box starts at byte 4)
+            if (data.byteLength > 8) {
+                const view = new DataView(data);
+                const boxSize = view.getUint32(0);
+                const boxType = this.getString(data, 4, 4);
+                this.logMessage(`First box: size=${boxSize}, type="${boxType}"`, 'info');
+                
+                if (boxType === 'ftyp' || boxType === 'moov') {
+                    this.config.initData = data;
+                    this.config.waitingForInit = false;
+                    this.logMessage('Detected initialization segment', 'info');
                     
-                    // Remove existing data
-                    if (this.config.sourceBuffer.buffered.length > 0) {
-                        for (let i = 0; i < this.config.sourceBuffer.buffered.length; i++) {
-                            const start = this.config.sourceBuffer.buffered.start(i);
-                            const end = this.config.sourceBuffer.buffered.end(i);
-                            this.config.sourceBuffer.remove(start, end);
-                        }
-                    }
-                    
-                    // Append init segment
-                    this.config.isSourceBufferUpdating = true;
-                    this.config.sourceBuffer.appendBuffer(data);
-                    this.logMessage('Appended initialization segment', 'info');
+                    // Process buffered data
+                    this.processBufferedData();
                     return;
-                    
-                } catch (e) {
-                    this.logMessage(`Error handling init segment: ${e.message}`, 'error');
-                    this.config.isSourceBufferUpdating = false;
                 }
             }
         }
         
-        // Check if we need to refresh init segment
-        const timeSinceInit = Date.now() - this.lastInitSegmentTime;
-        if (timeSinceInit > this.initSegmentRefreshInterval) {
-            this.logMessage('Requesting new init segment (periodic refresh)', 'info');
-            this.config.waitingForInitSegment = true;
-            this.config.initSegmentReceived = false;
+        // If we have init data, add this as media segment
+        if (this.config.initData) {
+            this.config.mediaSegments.push(data);
+            this.processBufferedData();
+        }
+    }
+    
+    processBufferedData() {
+        // If we're still waiting for init, check buffer
+        if (this.config.waitingForInit && this.buffer.length > 0) {
+            const data = this.buffer.shift();
+            const view = new DataView(data);
+            
+            // Check if this looks like an init segment
+            if (data.byteLength > 8) {
+                const boxSize = view.getUint32(0);
+                const boxType = this.getString(data, 4, 4);
+                
+                if (boxType === 'ftyp' || boxType === 'moov' || data.byteLength < 5000) {
+                    this.config.initData = data;
+                    this.config.waitingForInit = false;
+                    this.logMessage(`Found init segment: ${boxType} box, ${this.formatBytes(data.byteLength)}`, 'info');
+                } else {
+                    // This might be a media segment, store it
+                    this.config.mediaSegments.push(data);
+                }
+            }
         }
         
-        // Store media chunk
-        this.mediaChunks.push(data);
+        // If we have init data and source buffer, append data
+        if (this.config.initData && this.config.sourceBuffer && 
+            this.config.mediaSource.readyState === 'open') {
+            
+            // Append init segment if not already done
+            if (this.config.waitingForInit === false) {
+                try {
+                    if (!this.config.sourceBuffer.updating) {
+                        this.config.sourceBuffer.appendBuffer(this.config.initData);
+                        this.config.waitingForInit = true; // Mark as appended
+                        this.logMessage('Appended initialization segment', 'info');
+                        
+                        // Process any buffered media segments
+                        setTimeout(() => this.appendNextSegment(), 100);
+                    }
+                } catch (e) {
+                    this.logMessage(`Error appending init segment: ${e.message}`, 'error');
+                }
+            }
+        }
+    }
+    
+    appendNextSegment() {
+        if (!this.config.sourceBuffer || this.config.sourceBuffer.updating || 
+            this.config.mediaSegments.length === 0) {
+            return;
+        }
         
-        // Append if buffer is ready
-        if (this.config.sourceBuffer && !this.config.isSourceBufferUpdating && 
-            this.config.mediaSource.readyState === 'open' && this.config.initSegmentReceived) {
-            this.appendQueuedChunks();
+        try {
+            const segment = this.config.mediaSegments.shift();
+            
+            // Log segment info for debugging
+            const firstBytes = new Uint8Array(segment.slice(0, Math.min(16, segment.byteLength)));
+            this.logMessage(`Appending segment: ${this.formatBytes(segment.byteLength)}, starts with: ${this.bytesToHex(firstBytes)}`, 'debug');
+            
+            this.config.sourceBuffer.appendBuffer(segment);
+            
+            // Update buffer health
+            this.updateBufferHealth();
+            
+        } catch (e) {
+            this.logMessage(`Error appending segment: ${e.message}`, 'error');
+        }
+    }
+    
+    updateBufferHealth() {
+        if (!this.config.sourceBuffer || !this.config.sourceBuffer.buffered || 
+            this.config.sourceBuffer.buffered.length === 0) {
+            return;
+        }
+        
+        try {
+            const end = this.config.sourceBuffer.buffered.end(this.config.sourceBuffer.buffered.length - 1);
+            const currentTime = this.videoPlayer.currentTime;
+            const bufferDuration = end - currentTime;
+            
+            this.bufferHealth.textContent = `${Math.min(100, (bufferDuration / 5) * 100).toFixed(0)}%`;
+            this.bufferSize.textContent = `${bufferDuration.toFixed(2)}s`;
+            
+            // Try to play if enough buffer
+            if (bufferDuration > 0.5 && this.videoPlayer.paused) {
+                this.videoPlayer.play().catch(e => {
+                    this.logMessage(`Auto-play failed: ${e.message}`, 'warning');
+                });
+            }
+            
+        } catch (e) {
+            // Ignore errors
         }
     }
     
@@ -579,112 +573,13 @@ class WebSocketVideoStreamer {
         }
     }
     
-    appendQueuedChunks() {
-        if (!this.config.sourceBuffer || this.config.isSourceBufferUpdating || 
-            this.mediaChunks.length === 0 || !this.config.initSegmentReceived) {
-            return;
-        }
-        
-        try {
-            this.config.isSourceBufferUpdating = true;
-            const chunk = this.mediaChunks.shift();
-            
-            // Log some info about the chunk
-            const view = new Uint8Array(chunk.slice(0, Math.min(16, chunk.byteLength)));
-            const hex = Array.from(view).map(b => b.toString(16).padStart(2, '0')).join(' ');
-            this.logMessage(`Appending chunk (first 16 bytes): ${hex}`, 'debug');
-            
-            this.config.sourceBuffer.appendBuffer(chunk);
-            
-            // Update buffer health
-            this.updateBufferHealth();
-            
-        } catch (e) {
-            this.config.isSourceBufferUpdating = false;
-            this.logMessage(`Error appending buffer: ${e.message}`, 'error');
-            
-            // Try next codec on append error
-            if (e.name === 'QuotaExceededError' || e.message.includes('codec')) {
-                if (this.currentCodecIndex < this.codecConfigs.length - 1) {
-                    this.tryNextCodec();
-                }
-            }
-        }
+    // Utility methods
+    getString(arrayBuffer, offset, length) {
+        return String.fromCharCode.apply(null, new Uint8Array(arrayBuffer, offset, length));
     }
     
-    updateBufferHealth() {
-        if (!this.config.sourceBuffer || this.config.sourceBuffer.buffered.length === 0) {
-            return;
-        }
-        
-        try {
-            const end = this.config.sourceBuffer.buffered.end(this.config.sourceBuffer.buffered.length - 1);
-            const currentTime = this.videoPlayer.currentTime;
-            const bufferDuration = end - currentTime;
-            
-            this.bufferHealth.textContent = `${Math.min(100, (bufferDuration / 5) * 100).toFixed(0)}%`;
-            this.bufferSize.textContent = `${bufferDuration.toFixed(2)}s`;
-            
-            // Auto-play if enough buffer
-            if (bufferDuration > 0.5 && this.videoPlayer.paused) {
-                this.videoPlayer.play().catch(e => {
-                    this.logMessage(`Auto-play failed: ${e.message}`, 'warning');
-                });
-            }
-            
-        } catch (e) {
-            // Ignore buffer reading errors
-        }
-    }
-    
-    cleanupBuffer() {
-        if (!this.config.sourceBuffer || this.config.sourceBuffer.buffered.length === 0) {
-            return;
-        }
-        
-        const currentTime = this.videoPlayer.currentTime;
-        
-        // Remove buffered data older than 5 seconds
-        for (let i = 0; i < this.config.sourceBuffer.buffered.length; i++) {
-            const start = this.config.sourceBuffer.buffered.start(i);
-            const end = this.config.sourceBuffer.buffered.end(i);
-            
-            if (end < currentTime - 5) {
-                try {
-                    this.config.sourceBuffer.remove(start, end);
-                    this.logMessage(`Cleaned buffer: ${start.toFixed(1)}-${end.toFixed(1)}`, 'debug');
-                } catch (e) {
-                    // Ignore cleanup errors
-                }
-            }
-        }
-    }
-    
-    cleanupMediaSource() {
-        if (this.config.mediaSource) {
-            try {
-                if (this.config.mediaSource.readyState === 'open') {
-                    this.config.mediaSource.endOfStream();
-                }
-                URL.revokeObjectURL(this.videoPlayer.src);
-            } catch (e) {
-                // Ignore cleanup errors
-            }
-            this.config.mediaSource = null;
-            this.config.sourceBuffer = null;
-        }
-        
-        // Remove snapshot image if exists
-        if (this.snapshotImage) {
-            this.snapshotImage.remove();
-            this.snapshotImage = null;
-            this.videoPlayer.style.display = 'block';
-        }
-        
-        if (this.lastSnapshotUrl) {
-            URL.revokeObjectURL(this.lastSnapshotUrl);
-            this.lastSnapshotUrl = null;
-        }
+    bytesToHex(bytes) {
+        return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join(' ');
     }
     
     disconnect() {
@@ -853,14 +748,4 @@ class WebSocketVideoStreamer {
 document.addEventListener('DOMContentLoaded', () => {
     const streamer = new WebSocketVideoStreamer();
     window.videoStreamer = streamer;
-});
-
-// Cleanup
-window.addEventListener('beforeunload', () => {
-    if (window.videoStreamer) {
-        window.videoStreamer.disconnect();
-        if (window.videoStreamer.bufferCleanupInterval) {
-            clearInterval(window.videoStreamer.bufferCleanupInterval);
-        }
-    }
 });
