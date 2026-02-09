@@ -10,7 +10,7 @@
 <body>
     <div class="container">
         <header class="header">
-            <h1>🎥 Live Video Stream</h1>
+            <h1>🎥 Live Screen Streaming</h1>
             <div class="status">
                 <span id="status-indicator" class="status-offline">●</span>
                 <span id="status-text">Disconnected</span>
@@ -18,6 +18,19 @@
         </header>
         
         <main class="main-content">
+            <!-- Stream Type Selection -->
+            <div class="stream-type-selector">
+                <h3>Stream Type</h3>
+                <div class="stream-buttons">
+                    <button id="h264Btn" class="stream-btn active" data-endpoint="/screen/live">
+                        H.264 Stream (Smooth)
+                    </button>
+                    <button id="snapshotBtn" class="stream-btn" data-endpoint="/screen/snapstream">
+                        Snapshot Stream (FPS: <span id="fpsValue">15</span>)
+                    </button>
+                </div>
+            </div>
+            
             <!-- Server Configuration -->
             <div class="config-section">
                 <h3>Server Configuration</h3>
@@ -27,35 +40,25 @@
                         <input 
                             type="text" 
                             id="serverInput" 
-                            placeholder="wss://your-server.trycloudflare.com"
-                            value="wss://byte-carter-rim-that.trycloudflare.com"
-                        >
-                        <div class="preset-buttons">
-                            <button type="button" class="preset-btn" data-preset="byte-carter-rim-that">
-                                Default
-                            </button>
-                            <button type="button" class="preset-btn" data-preset="local">
-                                Localhost
-                            </button>
-                            <button type="button" class="preset-btn" data-preset="custom">
-                                Custom
-                            </button>
-                        </div>
-                    </div>
-                    
-                    <div class="endpoint-group">
-                        <label for="endpointInput">Endpoint:</label>
-                        <input 
-                            type="text" 
-                            id="endpointInput" 
-                            placeholder="/screen/live"
-                            value="/screen/live"
+                            placeholder="your-server.trycloudflare.com"
+                            value="byte-carter-rim-that.trycloudflare.com"
                         >
                     </div>
                     
                     <div class="full-url-display">
-                        <strong>Full URL:</strong> 
+                        <strong>Stream URL:</strong> 
                         <code id="fullUrlDisplay">wss://byte-carter-rim-that.trycloudflare.com/screen/live</code>
+                    </div>
+                    
+                    <div class="stream-info">
+                        <div class="info-item">
+                            <span>Protocol:</span>
+                            <span id="protocolInfo">H.264 MP4 over WebSocket</span>
+                        </div>
+                        <div class="info-item">
+                            <span>Data Type:</span>
+                            <span id="dataTypeInfo">Binary MP4 chunks</span>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -66,7 +69,10 @@
                     Your browser doesn't support video playback
                 </video>
                 <div id="connectionInfo" class="connection-info">
-                    Configure server and click Connect
+                    Select stream type and click Connect
+                </div>
+                <div id="videoInfo" class="video-info">
+                    Waiting for video data...
                 </div>
             </div>
             
@@ -78,49 +84,86 @@
                 <button id="disconnectBtn" class="btn btn-secondary" disabled>
                     Disconnect
                 </button>
-                <button id="testBtn" class="btn btn-tertiary">
-                    Test Connection
+                <button id="debugBtn" class="btn btn-tertiary">
+                    Debug Info
                 </button>
                 <button id="fullscreenBtn" class="btn btn-tertiary">
                     Fullscreen
                 </button>
             </div>
             
+            <!-- Debug Panel -->
+            <div id="debugPanel" class="debug-panel" style="display: none;">
+                <div class="debug-header">
+                    <h3>Debug Information</h3>
+                    <button id="closeDebugBtn" class="btn-close">×</button>
+                </div>
+                <div class="debug-content">
+                    <div class="debug-section">
+                        <h4>Connection Stats</h4>
+                        <div class="stats-grid">
+                            <div class="stat">
+                                <span>Bytes received:</span>
+                                <span id="bytesReceived">0</span>
+                            </div>
+                            <div class="stat">
+                                <span>Chunks:</span>
+                                <span id="chunkCount">0</span>
+                            </div>
+                            <div class="stat">
+                                <span>Buffer health:</span>
+                                <span id="bufferHealth">0%</span>
+                            </div>
+                            <div class="stat">
+                                <span>WebSocket state:</span>
+                                <span id="wsState">CLOSED</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="debug-section">
+                        <h4>Last 10 Messages</h4>
+                        <div id="messageLog" class="message-log">
+                            <!-- Messages will appear here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
             <!-- Connection details -->
             <div class="server-info">
                 <div class="info-header">
-                    <h3>Connection Status</h3>
-                    <button id="saveConfigBtn" class="btn-save">
-                        💾 Save Config
-                    </button>
+                    <h3>Stream Status</h3>
+                    <div class="stream-actions">
+                        <button id="saveConfigBtn" class="btn-save">
+                            💾 Save
+                        </button>
+                    </div>
                 </div>
                 
                 <div class="connection-stats">
                     <div class="stat-item">
-                        <span class="stat-label">Frames received:</span>
-                        <span id="frameCount" class="stat-value">0</span>
+                        <span class="stat-label">Stream type:</span>
+                        <span id="streamType" class="stat-value">H.264</span>
                     </div>
                     <div class="stat-item">
-                        <span class="stat-label">Quality:</span>
-                        <span id="connectionQuality" class="stat-value quality-neutral">--</span>
+                        <span class="stat-label">Data rate:</span>
+                        <span id="dataRate" class="stat-value">0 KB/s</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Buffer size:</span>
+                        <span id="bufferSize" class="stat-value">0 MB</span>
                     </div>
                     <div class="stat-item">
                         <span class="stat-label">Latency:</span>
                         <span id="latency" class="stat-value">-- ms</span>
                     </div>
                 </div>
-                
-                <div class="recent-servers">
-                    <h4>Recent Servers:</h4>
-                    <div id="recentServersList" class="servers-list">
-                        <!-- Will be populated dynamically -->
-                    </div>
-                </div>
             </div>
         </main>
         
         <footer class="footer">
-            <p>Telegram WebSocket Video App | Server configurable</p>
+            <p>Telegram WebSocket Video App | Supports H.264 & Snapshot streams</p>
         </footer>
     </div>
     
