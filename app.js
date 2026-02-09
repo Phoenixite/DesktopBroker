@@ -212,9 +212,10 @@ class WebSocketVideoStreamer {
 
         // Try different codecs
         const codecsToTry = [
-            'video/mp4; codecs="avc1.42E01E"',  // Baseline
-            'video/mp4; codecs="avc1.4D401E"',  // Main
-            'video/mp4; codecs="avc1.640028"',  // High
+            'video/mp4; codecs="avc1.42E01F"',  // Baseline level 3.1
+            'video/mp4; codecs="avc1.42E01E"',  // Baseline level 3.0
+            'video/mp4; codecs="avc1.4D401F"',  // Main level 3.1
+            'video/mp4; codecs="avc1.640028"',  // High level 4.0
             'video/mp4'                         // Generic
         ];
 
