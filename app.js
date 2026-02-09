@@ -6,7 +6,7 @@ class WebSocketVideoStreamer {
         this.telegramApp.expand();
         
         // WebSocket configuration
-        this.wsBaseUrl = 'wss://byte-carter-rim-that.trycloudflare.com';
+        this.wsBaseUrl = 'wss://competing-horn-advocacy-alfred.trycloudflare.trycloudflare.com';
         this.wsEndpoint = '/screen/live';
         this.wsUrl = this.wsBaseUrl + this.wsEndpoint;
         
