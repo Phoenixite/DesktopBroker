@@ -1,0 +1,18 @@
+{
+    "url": "https://your-domain.com/index.html",
+    "name": "Live Video Stream",
+    "short_name": "VideoStream",
+    "description": "Real-time WebSocket video streaming app for Telegram",
+    "icons": [
+        {
+            "src": "icon.png",
+            "sizes": "192x192",
+            "type": "image/png"
+        }
+    ],
+    "start_url": "index.html",
+    "display": "standalone",
+    "theme_color": "#667eea",
+    "background_color": "#ffffff",
+    "scope": "https://your-domain.com/"
+}

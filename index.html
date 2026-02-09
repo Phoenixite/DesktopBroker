@@ -1,0 +1,63 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live Video Stream</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <h1>🎥 Live Video Stream</h1>
+            <div class="status">
+                <span id="status-indicator" class="status-offline">●</span>
+                <span id="status-text">Disconnected</span>
+            </div>
+        </header>
+        
+        <main class="main-content">
+            <!-- Video display area -->
+            <div class="video-container">
+                <video id="videoPlayer" class="video-player" autoplay muted playsinline>
+                    Your browser doesn't support video playback
+                </video>
+                <div id="connectionInfo" class="connection-info">
+                    Waiting for connection...
+                </div>
+            </div>
+            
+            <!-- Controls -->
+            <div class="controls">
+                <button id="connectBtn" class="btn btn-primary">
+                    Connect to Stream
+                </button>
+                <button id="disconnectBtn" class="btn btn-secondary" disabled>
+                    Disconnect
+                </button>
+                <button id="fullscreenBtn" class="btn btn-tertiary">
+                    Fullscreen
+                </button>
+            </div>
+            
+            <!-- Connection details -->
+            <div class="server-info">
+                <h3>Server Connection</h3>
+                <p>URL: <code id="serverUrl">wss://competing-horn-advocacy-alfred.trycloudflare.com/screen/live</code></p>
+                <div class="connection-stats">
+                    <p>Frames received: <span id="frameCount">0</span></p>
+                    <p>Connection quality: <span id="connectionQuality">--</span></p>
+                </div>
+            </div>
+        </main>
+        
+        <footer class="footer">
+            <p>Telegram WebSocket Video App</p>
+        </footer>
+    </div>
+    
+    <script src="app.js"></script>
+</body>
+</html>
